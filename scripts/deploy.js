@@ -1,30 +1,28 @@
 const hre = require("hardhat");
+const { ethers } = require("ethers");
+require("dotenv").config();
 
 async function main() {
-  const [deployer] = await hre.ethers.getSigners();
-  if (!deployer) {
+  const privateKey = process.env.PRIVATE_KEY;
+  if (!privateKey) {
     throw new Error("No deployer account found. Please set PRIVATE_KEY in .env.");
   }
 
-  const network = await hre.ethers.provider.getNetwork();
+  // Use JsonRpcProvider with standard ethers.Wallet to bypass hardhat-ethers checkTx formatting issues on non-standard RPCs (e.g. BSC)
+  const rpcUrl = process.env.RPC_URL;
+  const provider = rpcUrl ? new ethers.JsonRpcProvider(rpcUrl) : hre.ethers.provider;
+  const deployer = new ethers.Wallet(privateKey, provider);
+
+  const network = await provider.getNetwork();
   console.log(`Deployment network chainId: ${network.chainId}`);
   console.log(`Deployer account: ${deployer.address}`);
 
-  const Factory = await hre.ethers.getContractFactory("BatchBalanceChecker");
-  const checker = await Factory.deploy();
-  const tx = checker.deploymentTransaction();
+  const artifact = await hre.artifacts.readArtifact("BatchBalanceChecker");
+  const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, deployer);
+  const checker = await factory.deploy();
+  await checker.waitForDeployment();
 
-  let address;
-  try {
-    await checker.waitForDeployment();
-    address = await checker.getAddress();
-  } catch (err) {
-    // Handle non-standard RPC responses (e.g. BSC returning `to: ""` on contract creation)
-    // which causes ethers v6 getTransaction parsing to fail
-    const receipt = await deployer.provider.getTransactionReceipt(tx.hash);
-    address = receipt?.contractAddress || hre.ethers.getCreateAddress({ from: deployer.address, nonce: tx.nonce });
-  }
-
+  const address = await checker.getAddress();
   console.log(`BatchBalanceChecker deployed to: ${address}`);
   console.log("Please set this address to BALANCE_CONTRACT in .env.");
 }
