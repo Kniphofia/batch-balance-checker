@@ -12,9 +12,19 @@ async function main() {
 
   const Factory = await hre.ethers.getContractFactory("BatchBalanceChecker");
   const checker = await Factory.deploy();
-  await checker.waitForDeployment();
+  const tx = checker.deploymentTransaction();
 
-  const address = await checker.getAddress();
+  let address;
+  try {
+    await checker.waitForDeployment();
+    address = await checker.getAddress();
+  } catch (err) {
+    // Handle non-standard RPC responses (e.g. BSC returning `to: ""` on contract creation)
+    // which causes ethers v6 getTransaction parsing to fail
+    const receipt = await deployer.provider.getTransactionReceipt(tx.hash);
+    address = receipt?.contractAddress || hre.ethers.getCreateAddress({ from: deployer.address, nonce: tx.nonce });
+  }
+
   console.log(`BatchBalanceChecker deployed to: ${address}`);
   console.log("Please set this address to BALANCE_CONTRACT in .env.");
 }
